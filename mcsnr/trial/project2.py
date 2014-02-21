@@ -1,17 +1,23 @@
 from __future__ import print_function, division
 
 import numpy as np
-import astropy.io.fits as fits
+
 from astropy.table import Table
 import astropy.units as u
 
 import matplotlib.pylab as plt
 
-from geminiutil.gmos import GMOSMOSProject, GMOSPrepare, GMOSDayArc
+from geminiutil.gmos import GMOSMOSProject, GMOSPrepareFrame
+from geminiutil.gmos.util.longslit_arc import GMOSLongslitArc
 
 #import extract_psf.extract as extract
 
-import helpers
+
+def line_catalog(lincat='/home/mhvk/standard/lines/CuAr.dat'):
+    return Table(
+        np.genfromtxt(lincat,
+                      dtype=[('w','f8'), ('ion','a7'), ('strength','i4')],
+                      delimiter=[9, 7, 8]))
 
 if __name__ == '__main__':
     plt.ion()
@@ -23,32 +29,36 @@ if __name__ == '__main__':
     # proj.add_directory('/raw/mhvk/gemini/mcsnr', file_filter='S*S*.fits')
     # proj.add_directory('/raw/mhvk/gemini/mcsnr/mdf_dir')
     # proj.link_masks()
-    # proj.link_science_frames()
+    # check proj.science_instrument_setups and
+    # proj.longslit_arcs_instrument_setups and
+    # find the best matches (science:longslit dict)
+    # proj.link_science_sets({10:16, 11:16, 12:15, 13:15})
 
     # also have 1.5" arcs, which are easier to use as wide-slit
     # ignore for now
     # dayarc_longslit = [fil for fil in proj.daycal
     #                    if(fil.object.name == 'cuar' and
     #                       'arcsec' in fil.fits.header['maskname'])]
-    daycalfits = [fil for fil in proj.daycal
-                  if(fil.object.name == 'cuar' and
-                     fil.fits.header['maskname'] == '0.5arcsec')]
+    # daycalfits = [fil for fil in proj.daycal
+    #               if(fil.object.name == 'cuar' and
+    #                  fil.fits.header['maskname'] == '0.5arcsec')]
+    daycalfits = set([s.longslit_arc for s in proj.science_sets])
     bluedaycal = [fil for fil in daycalfits
                   if fil.instrument_setup.grating.name[:1] == 'B']
     reddaycal = [fil for fil in daycalfits
-                 if fil.instrument_setup.grating.name[:1] == 'R']
+                 if fil.instrument_setup.grating.name[:1] == 'R'][0]
     # DARN: first & last of reddaycal taken at same wavelength
 
-    lincat = helpers.line_catalog()
+    lincat = line_catalog()
 
-    doblue = False
+    doblue = True
     dored = False
     doarcplot = True
 
-    prepdayarc = GMOSPrepare(bias_subslice=[slice(None), slice(1,11)],
-                             data_subslice=[slice(1150,1250),slice(-1)])
+    prepdayarc = GMOSPrepareFrame(bias_subslice=[slice(None), slice(1,11)],
+                                  data_subslice=[slice(1150,1250),slice(-1)])
     if doblue:
-        calbluedayarc = GMOSDayArc(
+        calbluedayarc = GMOSLongslitArc(
             line_catalog=lincat['w'] * u.Angstrom,
             min_curvature=[5.,3.,2.],
             minlist1=[(3.,1e3), (1.,3e2), (0.26,0.), (0.1,0.)],
@@ -65,7 +75,7 @@ if __name__ == '__main__':
             linesall.write(arcname, path='lines', append=True)
 
     if dored:
-        calbluedayarc = GMOSDayArc(
+        calbluedayarc = GMOSLongslitArc(
             line_catalog=lincat['w'] * u.Angstrom,
             min_curvature=[1.,1.,0.5],
             minlist1=[(3.,0.), (1.,0.), (0.26,0.)],

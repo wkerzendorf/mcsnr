@@ -116,11 +116,12 @@ if do_extract:
         scitab.meta['nbad'] = [ntbadl, ntbadh]
         scitab.meta['nproblems'] = nproblems
 
-        # plt.ion()
-        # plt.clf()
-        # plt.plot(scitab['x'], scitab['f'][:,0,:])
-        # plt.draw()
+        plt.ion()
+        plt.clf()
+        plt.plot(scitab['x'], scitab['f'][:,0,:])
+        plt.draw()
 
+if __name__ != '__main__':
         # get corresponding arc
         prep_arc_fits = raw_sci.mask_arc.prepared_fits.fits.fits_data
         arcdata = np.array([prep_arc_fits[chip].data[sci_slice, :]
