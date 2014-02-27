@@ -1,5 +1,5 @@
 from geminiutil.gmos import GMOSMOSProject
-from geminitil.gmos import gemini_alchemy as ga
+from geminiutil.gmos import gmos_alchemy as ga
 
 
 import socket
