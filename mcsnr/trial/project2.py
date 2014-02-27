@@ -13,26 +13,22 @@ from geminiutil.gmos.util.longslit_arc import GMOSLongslitArc
 #import extract_psf.extract as extract
 
 
-def line_catalog(lincat='/home/mhvk/standard/lines/CuAr.dat'):
-    return Table(
-        np.genfromtxt(lincat,
-                      dtype=[('w','f8'), ('ion','a7'), ('strength','i4')],
-                      delimiter=[9, 7, 8]))
+# def line_catalog(lincat='/home/mhvk/standard/lines/CuAr.dat'):
+#     return Table(
+#         np.genfromtxt(lincat,
+#                       dtype=[('w','f8'), ('ion','a7'), ('strength','i4')],
+#                       delimiter=[9, 7, 8]))
 
 if __name__ == '__main__':
     plt.ion()
 
     # os.system('rm mcsnr.db3')
-    dbname = 'sqlite:///mcsnr.db3'
+    dbname = 'sqlite:///gmos.db3'
     proj = GMOSMOSProject(dbname)
     # proj.initialize_database()
     # proj.add_directory('/raw/mhvk/gemini/mcsnr', file_filter='S*S*.fits')
     # proj.add_directory('/raw/mhvk/gemini/mcsnr/mdf_dir')
     # proj.link_masks()
-    # check proj.science_instrument_setups and
-    # proj.longslit_arcs_instrument_setups and
-    # find the best matches (science:longslit dict)
-    # proj.link_science_sets({10:16, 11:16, 12:15, 13:15})
 
     # also have 1.5" arcs, which are easier to use as wide-slit
     # ignore for now
