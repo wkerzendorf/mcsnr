@@ -26,6 +26,11 @@ specs = []
 for slc in priority1:
     specs.append(slc.extract_point_source())
 
+
+
+#get arc data, need to calibrate
+# priority1[0].get_prepared_arc_data()[0].astype('<f4')
+# specpos_x = priority1[1].science_set.science.mask.table[priority1[1].list_id]['specpos_x']
 if do_prep:
     do_prepare = gmos.GMOSPrepareScienceFrame(bias_subslice=[slice(None),
                                                              slice(1,11)])
