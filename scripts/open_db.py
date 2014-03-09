@@ -11,6 +11,6 @@ elif host == 'moria':
 else:
     raise ValueError("Unknown host='{0}'".format(host))
 
-dbname = 'sqlite:///databases/gmos.db3'
+dbname = 'sqlite:///gmos.db3'
 
 proj = GMOSMOSProject(dbname, work_dir=work_dir, echo=False)
