@@ -46,13 +46,13 @@ if __name__ == '__main__':
     bluedaycal = [fil for fil in daycalfits
                   if fil.raw.instrument_setup.grating.name[:1] == 'B']
     reddaycal = [fil for fil in daycalfits
-                 if fil.raw.instrument_setup.grating.name[:1] == 'R'][0]
+                 if fil.raw.instrument_setup.grating.name[:1] == 'R']
     # DARN: first & last of reddaycal taken at same wavelength
 
     lincat = line_catalog()
 
-    doblue = True
-    dored = False
+    doblue = False
+    dored = True
     doarcplot = False
 
     prepdayarc = GMOSPrepareFrame(bias_subslice=[slice(None), slice(1,11)],
@@ -65,7 +65,7 @@ if __name__ == '__main__':
             minlist2=[(2.,0.), (0.26,0.), (0.15,0.)])
 
         # first one works, second one not, third one does
-        for fil in bluedaycal[2:3]:
+        for fil in bluedaycal:
             prepared_data = prepdayarc(fil.raw)
             arctab, linesall, shift, fake = \
                 calbluedayarc(prepared_data,
@@ -77,23 +77,28 @@ if __name__ == '__main__':
             linesall.write(arcname, path='lines', append=True)
 
     if dored:
-        calbluedayarc = GMOSLongslitArcCalibration(
+        calreddayarc = GMOSLongslitArcCalibration(
             line_catalog=lincat['w'] * u.Angstrom,
             min_curvature=[1.,1.,0.5],
             minlist1=[(3.,0.), (1.,0.), (0.26,0.)],
             minlist2=[(2.,0.), (1.,0.), (0.26,0.)])
 
-        for fil in reddaycal:
-            prepdayarc(fil)
+        for fil in reddaycal[1:2]:
+            prepared_data = prepdayarc(fil.raw)
             arctab, linesall, shift, fake = \
-                calbluedayarc(fil.prepared_fits, doplot=True)
+                calreddayarc(prepared_data,
+                             instrument_setup=fil.raw.instrument_setup,
+                             doplot=True)
 
-            arcname = 'arc-{}.hdf5'.format(fil.fits.fname.split('.')[0])
+            arcname = 'arc-{}.hdf5'.format(fil.raw.fits.fname.split('.')[0])
             arctab.write(arcname, path='arc', overwrite=True)
             linesall.write(arcname, path='lines', append=True)
 
     if doarcplot:
-        for fil in bluedaycal:
+        for fil in daycalfits:
             arcname = 'arc-{}.hdf5'.format(fil.raw.fits.fname.split('.')[0])
             arctab = Table.read(arcname, path='arc')
             plt.plot(arctab['w'], arctab['f'])
+
+# 11.8, min 11.2
+# 10.8, min 9.6
