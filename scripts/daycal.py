@@ -10,7 +10,7 @@ for daycal in daycalfits:
     except ga.GMOSDatabaseDuplicate:
         pass
 
-    arctab, linesall, shift, fake = daycal.longslit_calibrate(doplot=True)
-    # daycal.longslit_calibrate_to_database()
+    # arctab, linesall, shift, fake = daycal.longslit_calibrate(doplot=True)
+    daycal.longslit_calibrate_to_database(force=True)
 
 # stores results in daycal.wave_cal.full_path
