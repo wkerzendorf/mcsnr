@@ -9,7 +9,7 @@ import ephem
 import os
 from dateutil import parser
 from astropy.utils import misc
-from pyspec import oned
+
 import pandas as pd
 from astropy.io import fits
 from astropy import time
@@ -17,13 +17,6 @@ import h5py
 from pywcsw import wcstools
 
 Base = declarative_base()
-
-cent_waves = {'blue': [430, 470], 'red':[735, 775]}
-grating_names = {'blue': 'B600+_G5323', 'red':'R400+_G5325'}
-reduction_step_dict = {'simple':'gs',
-                       'wavecal':'tgs',
-                       'skysub' : 'stgs',
-                       'extracted': 'estgs'}
 
 class MC(Base):
     __tablename__ = 'mc'
@@ -490,138 +483,6 @@ class SNRGeminiTarget(Base):
     def mcps_id2cand_id(self):
         return dict([(item.mcps_id, item.label) for item in self.candidates])
 
-
-
-    @misc.lazyproperty
-    def slitlets_simple(self):
-        slitlet_dict = {}
-
-        for band in ('red', 'blue'):
-            slitlet_dict[band] = {}
-            for cw in cent_waves[band]:
-                slitlet_dict[band][cw] = {}
-                for raw_fits in self.science:
-                    if raw_fits.header['grating'] == grating_names[band] and abs(raw_fits.header['centwave']-cw) < 1e-5:
-                        fname = os.path.join(self.reduced_dir, self.snr.name, band, self.reduction_step_dict['simple'] + raw_fits.fname)
-                for label in self.cand2mdf_id:
-                    cur_fits = fits.open(fname)
-                    slitlet_dict[band][cw][label] = cur_fits[self.cand2mdf_id[label]+2]
-        return slitlet_dict
-
-    @misc.lazyproperty
-    def slitlets_wavecal(self):
-        slitlet_dict = {}
-
-        for band in ('red', 'blue'):
-            slitlet_dict[band] = {}
-            for cw in cent_waves[band]:
-                slitlet_dict[band][cw] = {}
-                for raw_fits in self.science:
-                    if raw_fits.header['grating'] == grating_names[band] and abs(raw_fits.header['centwave']-cw) < 1e-5:
-                        fname = os.path.join(self.reduced_dir, self.snr.name, band, self.reduction_step_dict['wavecal'] + raw_fits.fname)
-                        print fname
-                for label in self.cand2mdf_id:
-                    cur_fits = fits.open(fname)
-                    slitlet_dict[band][cw][label] = cur_fits[self.cand2mdf_id[label]+2]
-        return slitlet_dict
-
-    @misc.lazyproperty
-    def slitlets_skysub(self):
-        slitlet_dict = {}
-
-        for band in ('red', 'blue'):
-            slitlet_dict[band] = {}
-            for cw in cent_waves[band]:
-                slitlet_dict[band][cw] = {}
-                for raw_fits in self.science:
-                    if raw_fits.header['grating'] == grating_names[band] and abs(raw_fits.header['centwave']-cw) < 1e-5:
-                        fname = os.path.join(self.reduced_dir, self.snr.name, band, self.reduction_step_dict['skysub'] + raw_fits.fname)
-                        print fname
-                for label in self.cand2mdf_id:
-                    cur_fits = fits.open(fname)
-                    slitlet_dict[band][cw][label] = cur_fits[self.cand2mdf_id[label]+2]
-        return slitlet_dict
-
-
-    @misc.lazyproperty
-    def spectra_extracted(self):
-        slitlet_dict = {}
-
-        for band in ('red', 'blue'):
-            slitlet_dict[band] = {}
-            for cw in cent_waves[band]:
-                slitlet_dict[band][cw] = {}
-                for raw_fits in self.science:
-                    if raw_fits.header['grating'] == grating_names[band] and abs(raw_fits.header['centwave']-cw) < 1e-5:
-                        fname = os.path.join(self.reduced_dir, self.snr.name, band, self.reduction_step_dict['extracted'] + raw_fits.fname)
-                        print fname
-                for label in self.cand2mdf_id:
-                    cur_fits = fits.open(fname)
-                    cur_slitlet = cur_fits[self.cand2mdf_id[label]+2]
-                    wave = cur_slitlet.header['crval1'] + np.arange(cur_slitlet.header['naxis1'])*cur_slitlet.header['cdelt1']
-                    spec = cur_slitlet.data
-                    slitlet_dict[band][cw][label] = oned.onedspec(wave, spec, mode='waveflux')
-
-        return slitlet_dict
-
-    def iter_stellar_spectra(self):
-        snr_observations = []
-        for raw_fits in self.science:
-            print "Working on file %s" % raw_fits.fname
-            central_wave = int(raw_fits.header['centwave'])
-            band = 'red' if central_wave > 600 else 'blue'
-            path =  os.path.join(self.reduced_dir, self.snr.name, band)
-            fname = os.path.join(path, self.reduction_step_dict['extracted'] + raw_fits.fname)
-            if not os.path.exists(fname):
-                print "WARNING: %s does not exist SKIPPING" % (fname, )
-                continue
-            current_fits = fits.open(fname)
-            current_mdf = pd.DataFrame(current_fits[1].data)
-            current_mdf.set_index('ID', inplace=True)
-            for fits_idx, extracted_spec in enumerate(current_fits[2:]):
-                fits_idx += 2
-                object_id = int(extracted_spec.header['object'])
-                mdf_entry = current_mdf.ix[object_id]
-
-                if int(mdf_entry['priority']) in (0, 1, 3):
-
-                    #print "Found Stellar Candidate_id"
-                    candidate_id = self.mcps2cand_id[object_id]
-                    snr_observations.append((candidate_id, raw_fits.fname, path, central_wave, fits_idx))
-                else:
-                    continue
-
-        return snr_observations
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    @property
-    def mask_name(self):
-        return self.science[0].header['maskname']
-
-    @property
-    def mdf(self):
-        if self.mdf_dir is None:
-            print "mdf_dir not set"
-            return None
-        if self._mdf is None:
-            mdf_fname = os.path.join(self.mdf_dir, self.mask_name + '.fits')
-            print mdf_fname
-            self._mdf = fits.getdata(mdf_fname)
-
-        return self._mdf
-
 class SNRNeighbour(Base):
     __tablename__ = 'snr_neighbour'
     id = Column(Integer, primary_key=True)
@@ -913,8 +774,8 @@ class CandidateObservation(Base):
         wave = current_header['crval1'] + np.arange(current_header['naxis1'])* current_header['cdelt1']
         flux = fits.getdata(full_path, ext=self.fits_idx)
 
-
-        return oned.onedspec(wave, flux, mask=mask, mode='waveflux')
+        raise NotImplementedError
+        #return oned.onedspec(wave, flux, mask=mask, mode='waveflux')
 
     def __repr__(self):
         return "<Observation %s CentralWL=%d nm fits_idx = %d>" % (self.fname, self.centralwave, self.fits_idx)
