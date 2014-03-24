@@ -4,6 +4,8 @@ from sqlalchemy import update
 from sqlalchemy import sql
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker, relationship, backref
+from sqlalchemy.orm.exc import NoResultFound
+
 import numpy as np
 import ephem
 import os
@@ -511,8 +513,9 @@ class MCObject(Base):
         self.galex_id = galex_id
         self.uit_id = uit_id
 
+from mcsnr2012.mcsnr_alchemy_mixins import GeminiUtilDBMixin
 
-class Candidate(Base):
+class Candidate(Base, GeminiUtilDBMixin):
     __tablename__ = 'candidates'
 
     id = Column(Integer, primary_key=True)
@@ -535,6 +538,7 @@ class Candidate(Base):
     galex = relationship("Galex")
     mcps = relationship("MCPS")
     snr = relationship("SNRS")
+    #gemtarget = relationship('SNRGeminiTarget', uselist=False, backref='candidates')
     snr_neighbour = relationship("SNRNeighbour")
 
     def get_ra_sex(self):
@@ -569,6 +573,17 @@ class Candidate(Base):
         return "SNR Candidate MCPS #%d (%s) of SNR %s RA=%s DEC=%s V=%.2f priority=%d slit_width=%.2f slit_length=%.2f" %\
            (self.mcps_id, self.label, self.snr.name.upper(), self.mcps.ra_sex, self.mcps.dec_sex,
             self.mcps.v, self.priority, self.slit_size_x, self.slit_size_y)
+
+    @property
+    def mos_point_source(self):
+        if self.geminiutil_session is None:
+            raise ValueError('geminiutil db not set in session')
+        else:
+            from geminiutil.gmos.alchemy.mos import MOSPointSource
+            try:
+                return self.geminiutil_session.query(MOSPointSource).filter_by(id=self.mcps_id).one()
+            except NoResultFound:
+                return None
 
 class SNRLocation(Base):
     __tablename__ = 'snr_location'
