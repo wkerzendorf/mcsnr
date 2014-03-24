@@ -16,6 +16,4 @@ else:
     raise ValueError("Unknown host='{0}'".format(host))
 
 
-gmos_working_copy.db3
-
 proj = GMOSMOSProject(dbname, work_dir=work_dir, echo=False)
