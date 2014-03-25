@@ -2,6 +2,7 @@ import warnings
 import numpy as np
 
 from astropy import units as u, constants as const
+from astropy.table import Table
 
 from geminiutil.gmos.alchemy.mos import MOSSpectrum
 
@@ -57,9 +58,77 @@ def _spectral_fit(self, model_wavelength, model_flux, velocity):
 
     fit = np.dot(V, sol) * self.uncertainty
     chi2 = np.sum(((self.flux-fit)/self.uncertainty)**2)
-    return chi2, fit, interpolated_model
+    return fit, chi2, interpolated_model
+
+
+def find_velocity(self, teff, logg, feh,
+                  velocities=np.linspace(-400, 400, 51) * u.km / u.s,
+                  npol=3, sigrange=5., vrange=None):
+
+    model_wavelength, model_flux = self.get_model_spectrum(teff, logg, feh)
+    # pre-calculate observed flux/error and polynomial bases
+    if not hasattr(self, 'signal_to_noise'):
+        self.signal_to_noise = (self.flux / self.uncertainty)
+    # Vp[:,0]=1, Vp[:,1]=w, .., Vp[:,npol]=w**npol
+    if not hasattr(self, '_Vp') or self._Vp.shape[-1] != npol + 1:
+        self._Vp = np.polynomial.polynomial.polyvander(
+            self.wavelength/self.wavelength.mean() - 1., npol)
+
+    chi2 = Table([velocities, np.zeros_like(velocities.value)],
+                 names=['velocity','chi2'])
+
+    chi2['chi2'] = np.array([
+        self._spectral_fit(model_wavelength, model_flux, v)[1]
+        for v in velocities])
+    chi2.meta['ndata'] = len(self.flux)
+    chi2.meta['npar'] = npol+1+1
+    chi2.meta['ndof'] = chi2.meta['ndata']-chi2.meta['npar']
+
+    if vrange is None and sigrange is None or len(velocities) < 3:
+        ibest = chi2['chi2'].argmin()
+        vbest, bestchi2 = chi2[ibest]
+        chi2.meta['vbest'] = vbest
+        chi2.meta['verr'] = 0.
+        chi2.meta['bestchi2'] = bestchi2
+    else:
+        vbest, verr, bestchi2 = minchi2(chi2, vrange, sigrange)
+
+    fit, bestchi2, interpolated_model = self._spectral_fit(vbest)
+
+    return vbest, verr, fit, chi2, interpolated_model
+
+
+def minchi2(chi2, vrange=None, sigrange=None, fitcol='chi2fit'):
+    assert vrange is not None or sigrange is not None
+    if sigrange is None:
+        sigrange = 1e10
+    if vrange is None:
+        vrange = 1e10
+
+    iminchi2 = chi2['chi2'].argmin()
+    ndof = float(chi2.meta['ndof'])
+    iok = np.where((chi2['chi2'] <
+                    chi2['chi2'][iminchi2]*(1.+sigrange**2/ndof)) &
+                   (abs(chi2['v']-chi2['v'][iminchi2]) <= vrange))
+
+    p = np.polynomial.Polynomial.fit(chi2['v'][iok], chi2['chi2'][iok],
+                                     2, domain=[])
+
+    vbest = -p.coef[1]/2./p.coef[2]
+    # normally, get sigma from where chi2 = chi2min+1, but best to scale
+    # errors, so look for chi2 = chi2min*(1+1/ndof) ->
+    # a verr**2 = chi2min/ndof -> verr = sqrt(chi2min/ndof/a)
+    verr = np.sqrt(p(vbest)/p.coef[2]/ndof)
+    chi2.meta['vbest'] = vbest
+    chi2.meta['verr'] = verr
+    chi2.meta['bestchi2'] = p(vbest)
+    if fitcol is not None:
+        chi2[fitcol] = p(chi2['v'])
+
+    return chi2.meta['vbest'], chi2.meta['verr'], chi2.meta['bestchi2']
 
 
 MOSSpectrum.get_spectral_fit = get_spectral_fit
 MOSSpectrum._spectral_fit = _spectral_fit
 MOSSpectrum.get_model_spectrum = get_model_spectrum
+MOSSpectrum.find_velocity = find_velocity
