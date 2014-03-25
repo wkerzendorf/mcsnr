@@ -30,7 +30,7 @@ class MCSNRProject(object):
         self.conn = self.session.bind.connect()
 
         MOSSpectrum.spectral_grid = None
-        MOSSpectrum.get_spectral_fit = get_spectral_fit
+
 
 
     @property
