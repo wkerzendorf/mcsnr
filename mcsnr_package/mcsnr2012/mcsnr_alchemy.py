@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker, relationship, backref
 from sqlalchemy.orm.exc import NoResultFound
 
+from casagrande_phot2param import col2teff, polys as casagrande_coeff
 import numpy as np
 import ephem
 import os
@@ -15,6 +16,8 @@ from astropy.utils import misc
 import pandas as pd
 from astropy.io import fits
 from astropy import time
+
+from astropy import units as u
 import h5py
 from pywcsw import wcstools
 
@@ -110,6 +113,14 @@ class MCPS(Base):
         return "U = %.2f +- %.2f B = %.2f +- %.2f V = %.2f +- %.2f I = %.2f +- %.2f J = %.2f +- %.2f H = %.2f +- %.2f K = %.2f +- %.2f" % \
             (self.u, self.u_err, self.b, self.b_err, self.v, self.v_err, self.i, self.i_err, self.j, self.j_err, self.h, self.h_err, self.k, self.k_err)
 
+    def photometric_temperature(self, color, feh=0):
+        """
+        Return photometric temperature
+        """
+        color_value = self.__getattribute__(color[0]) - self.__getattribute__(color[1])
+        casa_coeff = casagrande_coeff[color]
+
+        return col2teff(color_value, feh=feh, coef=casa_coeff) * u.K
 
 class GalexBand(Base):
     __tablename__ = 'galexband'
