@@ -585,6 +585,16 @@ class Candidate(Base, GeminiUtilDBMixin):
             except NoResultFound:
                 return None
 
+    @property
+    def mos_spectra(self):
+        if self.geminiutil_session is None:
+            raise ValueError('geminiutil db not set in session')
+        else:
+            if self.mos_point_source is not None:
+                return self.mos_point_source.mos_spectra
+            else:
+                return None
+
 class SNRLocation(Base):
     __tablename__ = 'snr_location'
 
