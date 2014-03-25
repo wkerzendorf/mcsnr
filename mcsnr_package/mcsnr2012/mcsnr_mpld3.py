@@ -38,12 +38,16 @@ class LinkedView(plugins.PluginBase):
       var line = mpld3.get_element(this.prop.idline);
       var data = this.prop.data;
 
+
       function mouseover(d, i){
         line.data = data[i];
+        line.ax.set_axlim(d3.extent(data[i], function(d){return d[0];}),
+                          d3.extent(data[i], function(d){return d[1];}));
         line.elements().transition()
             .attr("d", line.datafunc(line.data))
             .style("stroke", this.style.fill);
       }
+
       pts.elements().on("click", mouseover);
     };
 

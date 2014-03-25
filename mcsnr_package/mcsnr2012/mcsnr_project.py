@@ -11,6 +11,10 @@ from matplotlib import cm
 from mpld3 import plugins
 from mcsnr_mpld3 import css, LinkedView
 
+from geminiutil.gmos.alchemy.mos import MOSPointSource, MOSSpectrum
+
+from mcsnr2012.spectral_fitting import get_spectral_fit
+
 class MCSNRProject(object):
 
     quick_search_classes = [malchemy.Candidate]
@@ -24,6 +28,10 @@ class MCSNRProject(object):
         self.Session = sessionmaker(bind=self.engine)
         self.session = self.Session()
         self.conn = self.session.bind.connect()
+
+        MOSSpectrum.spectral_grid = None
+        MOSSpectrum.get_spectral_fit = get_spectral_fit
+
 
     @property
     def quick_search_table_names(self):

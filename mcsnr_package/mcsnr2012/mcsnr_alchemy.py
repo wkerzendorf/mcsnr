@@ -18,6 +18,9 @@ from astropy import time
 import h5py
 from pywcsw import wcstools
 
+from geminiutil.gmos.alchemy.mos import MOSPointSource, MOSSpectrum
+
+
 Base = declarative_base()
 
 class MC(Base):
@@ -579,7 +582,7 @@ class Candidate(Base, GeminiUtilDBMixin):
         if self.geminiutil_session is None:
             raise ValueError('geminiutil db not set in session')
         else:
-            from geminiutil.gmos.alchemy.mos import MOSPointSource
+
             try:
                 return self.geminiutil_session.query(MOSPointSource).filter_by(id=self.mcps_id).one()
             except NoResultFound:
@@ -594,6 +597,13 @@ class Candidate(Base, GeminiUtilDBMixin):
                 return self.mos_point_source.mos_spectra
             else:
                 return None
+
+
+
+
+
+
+
 
 class SNRLocation(Base):
     __tablename__ = 'snr_location'
