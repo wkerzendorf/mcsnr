@@ -499,6 +499,26 @@ class SNRGeminiTarget(Base):
     def mcps_id2cand_id(self):
         return dict([(item.mcps_id, item.label) for item in self.candidates])
 
+
+    def fit_velocities(self, candidates, default_logg=4., default_feh=0.0):
+        velocities = np.zeros((4, len(candidates)))
+        uncertainties = np.zeros((4, len(candidates)))
+        labels = []
+
+        for candidate in candidates:
+            labels += [candidate.label] * 4
+            teff = candidate.mcps.photometric_temperature('bv')
+            for i, spectrum in enumerate(candidate.mos_spectra):
+                vbest, verr, fit, chi2, interpolated_model = spectrum.find_velocity(teff, default_logg, default_feh)
+                velocities[i] = vbest
+                uncertainties[i] = verr
+
+        vel_unc = np.hstack((velocities.T, uncertainties.T))
+
+        return pd.DataFrame(vel_unc, index=labels)
+
+
+
 class SNRNeighbour(Base):
     __tablename__ = 'snr_neighbour'
     id = Column(Integer, primary_key=True)

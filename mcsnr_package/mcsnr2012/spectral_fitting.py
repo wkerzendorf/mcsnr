@@ -63,7 +63,7 @@ def _spectral_fit(self, model_wavelength, model_flux, velocity):
 
 def find_velocity(self, teff, logg, feh,
                   velocities=np.linspace(-400, 400, 51) * u.km / u.s,
-                  npol=3, sigrange=5., vrange=None):
+                  npol=3, sigrange=None, vrange=70):
 
     model_wavelength, model_flux = self.get_model_spectrum(teff, logg, feh)
     # pre-calculate observed flux/error and polynomial bases
@@ -93,7 +93,9 @@ def find_velocity(self, teff, logg, feh,
     else:
         vbest, verr, bestchi2 = minchi2(chi2, vrange, sigrange)
 
-    fit, bestchi2, interpolated_model = self._spectral_fit(vbest)
+    fit, bestchi2, interpolated_model = self._spectral_fit(model_wavelength,
+                                                           model_flux,
+                                                           vbest)
 
     return vbest, verr, fit, chi2, interpolated_model
 
@@ -109,9 +111,9 @@ def minchi2(chi2, vrange=None, sigrange=None, fitcol='chi2fit'):
     ndof = float(chi2.meta['ndof'])
     iok = np.where((chi2['chi2'] <
                     chi2['chi2'][iminchi2]*(1.+sigrange**2/ndof)) &
-                   (abs(chi2['v']-chi2['v'][iminchi2]) <= vrange))
+                   (abs(chi2['velocity']-chi2['velocity'][iminchi2]) <= vrange))
 
-    p = np.polynomial.Polynomial.fit(chi2['v'][iok], chi2['chi2'][iok],
+    p = np.polynomial.Polynomial.fit(chi2['velocity'][iok], chi2['chi2'][iok],
                                      2, domain=[])
 
     vbest = -p.coef[1]/2./p.coef[2]
@@ -123,7 +125,7 @@ def minchi2(chi2, vrange=None, sigrange=None, fitcol='chi2fit'):
     chi2.meta['verr'] = verr
     chi2.meta['bestchi2'] = p(vbest)
     if fitcol is not None:
-        chi2[fitcol] = p(chi2['v'])
+        chi2[fitcol] = p(chi2['velocity'])
 
     return chi2.meta['vbest'], chi2.meta['verr'], chi2.meta['bestchi2']
 
