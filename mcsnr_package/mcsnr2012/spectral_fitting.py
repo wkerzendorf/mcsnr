@@ -1,5 +1,6 @@
 import warnings
 import numpy as np
+from scipy import optimize
 
 from astropy import units as u, constants as const
 from astropy.table import Table
@@ -17,12 +18,15 @@ def get_model_spectrum(self, teff, logg, feh):
 
     return self.spectral_grid.wave, self.spectral_grid(self.spectral_grid.wave)
 
+
 def get_spectral_fit(self, teff0, logg0, feh0, vrad0, vrot0, npol=5):
-    spectral_model_fit = SimpleStellarParametersFit(self.spectral_grid, self)
+    spectral_model_fit = SimpleStellarParametersFit(self.spectral_grid, self,
+                                                    npol=npol)
 
-    #optimize.minimize(spectral_model_fit, (teff0, logg0, feh0, vrad0, vrot0))
-
-
+    # (solution, covariance, infodict, mesg, ierr) =
+    return optimize.leastsq(spectral_model_fit,
+                            (teff0, logg0, feh0, vrad0, vrot0),
+                            full_output=True)
 
 
 class SimpleStellarParametersFit(object):
