@@ -32,6 +32,19 @@ def get_spectral_fit(self, teff, logg, feh, velocity=0, npol=3):
 
     return self._spectral_fit(model_wavelength, model_flux, velocity)
 
+class SimpleStellarParametersFit(object):
+
+    def __init__(self, model, spectrum):
+        self.model = model
+        self.spectrum = spectrum
+
+    def __call__(self, teff, logg, feh, vrad, vrot):
+        model_spec = self.model.eval(self.spectrum, teff=teff, logg=logg, feh=feh, vrad=vrad, vrot=vrot)
+
+        
+        return ((model_spec.flux - self.spectrum.flux)/self.spectrum.uncertainty)**2
+
+
 
 def _spectral_fit(self, model_wavelength, model_flux, velocity):
     # Doppler shift the model grid
@@ -64,6 +77,8 @@ def _spectral_fit(self, model_wavelength, model_flux, velocity):
 def find_velocity(self, teff, logg, feh,
                   velocities=np.linspace(-400, 400, 51) * u.km / u.s,
                   npol=3, sigrange=None, vrange=70):
+
+    teff = min(max(teff, 4000), 35000)
 
     model_wavelength, model_flux = self.get_model_spectrum(teff, logg, feh)
     # pre-calculate observed flux/error and polynomial bases

@@ -400,16 +400,6 @@ class SNRGeminiTarget(Base):
     snr = relationship('SNRS', uselist=False, backref=backref('gemini_target', uselist=False))
 
 
-    mdf_dir = None
-    reduced_dir = None
-
-    reduction_step_dict = {'simple':'gs',
-                           'wavecal':'tgs',
-                           'skysub' : 'stgs',
-                           'extracted': 'estgs'}
-
-    _mdf = None
-
 
     def get_ra_sex(self):
         return ephem.hours(np.deg2rad(self.ra))
@@ -470,7 +460,7 @@ class SNRGeminiTarget(Base):
 
     @property
     def snr_locations(self):
-        return self.session.query(SNRLocation).filter_by(snr_id=self.snr_id).all()
+        return self.session.query(SNRLocation).filter_by(snr_id=self.snr_id, priority=2).all()
 
     @property
     def calibration_stars(self):
@@ -500,21 +490,42 @@ class SNRGeminiTarget(Base):
         return dict([(item.mcps_id, item.label) for item in self.candidates])
 
 
-    def fit_velocities(self, candidates, default_logg=4., default_feh=0.0):
-        velocities = np.zeros((4, len(candidates)))
-        uncertainties = np.zeros((4, len(candidates)))
+    def fit_velocities(self, candidates, force=False):
+        velocities = np.zeros((len(candidates), 4))
+        uncertainties = np.zeros((len(candidates), 4))
         labels = []
 
-        for candidate in candidates:
-            labels += [candidate.label] * 4
-            teff = candidate.mcps.photometric_temperature('bv')
+        for j, candidate in enumerate(candidates):
+            labels += [candidate.label]
+
             for i, spectrum in enumerate(candidate.mos_spectra):
-                vbest, verr, fit, chi2, interpolated_model = spectrum.find_velocity(teff, default_logg, default_feh)
-                velocities[i] = vbest
-                uncertainties[i] = verr
+                raw_wavelength = spectrum.table['wave'].T.flatten() * u.angstrom
+                spectrum.user_mask = raw_wavelength < 6800 * u.angstrom
 
-        vel_unc = np.hstack((velocities.T, uncertainties.T))
+                current_stellar_parameters = candidate.preliminary_stellar_parameters[i]
+                if not force and current_stellar_parameters.vrad is not None:
+                    continue
 
+                print "length of spectrum {0}".format(len(spectrum.wavelength))
+
+                if len(spectrum.wavelength) <100:
+                    print "bad spectrum"
+                    continue
+
+                vbest, verr, fit, chi2, interpolated_model = spectrum.find_velocity(
+                    current_stellar_parameters.teff,
+                    current_stellar_parameters.logg,
+                    current_stellar_parameters.feh)
+
+                current_stellar_parameters.vrad = vbest
+                current_stellar_parameters.vrad_uncertainty = verr
+
+            print candidate.preliminary_stellar_parameters
+
+
+        vel_unc = np.hstack((velocities, uncertainties))
+        columns = ['velocity{0}'.format(i) for i in xrange(4)] +\
+                  ['uncertainty{0}'.format(i) for i in xrange(4)]
         return pd.DataFrame(vel_unc, index=labels)
 
 
@@ -570,7 +581,8 @@ class Candidate(Base, GeminiUtilDBMixin):
 
     #relationship()
     galex = relationship("Galex")
-    mcps = relationship("MCPS")
+    mcps = relationship("MCPS", uselist=False, backref=backref('candidate',
+                                                               uselist=False))
     snr = relationship("SNRS")
     #gemtarget = relationship('SNRGeminiTarget', uselist=False, backref='candidates')
     snr_neighbour = relationship("SNRNeighbour")
@@ -627,14 +639,44 @@ class Candidate(Base, GeminiUtilDBMixin):
             if self.mos_point_source is not None:
                 return self.mos_point_source.mos_spectra
             else:
-                return None
+                return []
+
+
+class PreliminaryStellarParameters(Base):
+    __tablename__ = 'preliminary_stellar_parameters'
+
+    id = Column(Integer, primary_key=True)
+
+    candidate_id = Column(Integer, ForeignKey('candidates.id'))
+
+    teff = Column(Float)
+    teff_uncertainty = Column(Float)
+
+    logg = Column(Float)
+    logg_uncertainty = Column(Float)
+
+    feh = Column(Float)
+    feh_uncertainty = Column(Float)
+
+    vrad = Column(Float)
+    vrad_uncertainty = Column(Float)
+
+    vrot = Column(Float)
+    vrot_uncertainty = Column(Float)
+
+
+    candidate = relationship(Candidate, uselist=False,
+                             backref='preliminary_stellar_parameters')
 
 
 
-
-
-
-
+    def __repr__(self):
+        stellar_params = [item or float('nan') for item in [
+            self.teff, self.teff_uncertainty, self.logg, self.logg_uncertainty,
+            self.feh, self.feh_uncertainty, self.vrad, self.vrad_uncertainty]]
+        return "<stellar param teff {0:.2f}+-{1:.2f} logg {2:.2f}+-{3:.2f} " \
+              "feh {4:.2f}+-{5:.2f} vrad {6:.2f}+-{7:.2f}>".format(*stellar_params
+        )
 
 class SNRLocation(Base):
     __tablename__ = 'snr_location'
