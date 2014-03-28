@@ -25,7 +25,7 @@ def get_spectral_fit(self, teff0, logg0, feh0, vrad0, vrot0, npol=5):
 
     # (solution, covariance, infodict, mesg, ierr) =
     return optimize.leastsq(spectral_model_fit,
-                            (teff0, logg0, feh0, vrad0, vrot0),
+                            [teff0, logg0, feh0, vrad0, vrot0],
                             full_output=True)
 
 
