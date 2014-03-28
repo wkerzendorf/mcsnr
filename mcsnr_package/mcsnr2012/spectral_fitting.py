@@ -32,18 +32,27 @@ def get_spectral_fit(self, teff, logg, feh, velocity=0, npol=3):
 
     return self._spectral_fit(model_wavelength, model_flux, velocity)
 
+
 class SimpleStellarParametersFit(object):
 
-    def __init__(self, model, spectrum):
+    def __init__(self, model, spectrum, npol=5):
         self.model = model
         self.spectrum = spectrum
+        self.spectrum.signal_to_noise = (self.spectrum.flux /
+                                         self.spectrum.uncertainty)
+        self.spectrum._Vp = np.polynomial.polynomial.polyvander(
+            self.spectrum.wavelength/self.spectrum.wavelength.mean() - 1.,
+            npol)
+        self.spectrum._normalize = _normalize
 
     def __call__(self, teff, logg, feh, vrad, vrot):
-        model_spec = self.model.eval(self.spectrum, teff=teff, logg=logg, feh=feh, vrad=vrad, vrot=vrot)
+        model_spec = self.model.eval(self.spectrum, teff=teff, logg=logg,
+                                     feh=feh, vrad=vrad, vrot=vrot)
 
-        
-        return ((model_spec.flux - self.spectrum.flux)/self.spectrum.uncertainty)**2
-
+        normalized_model = self.spectrum._normalize(model_spec.wavelength,
+                                                    model_spec.flux)
+        return ((self.spectrum.flux - normalized_model) /
+                self.spectrum.uncertainty)**2
 
 
 def _spectral_fit(self, model_wavelength, model_flux, velocity):
@@ -72,6 +81,29 @@ def _spectral_fit(self, model_wavelength, model_flux, velocity):
     fit = np.dot(V, sol) * self.uncertainty
     chi2 = np.sum(((self.flux-fit)/self.uncertainty)**2)
     return fit, chi2, interpolated_model
+
+
+def _normalize(self, model_wavelength, model_flux):
+    # interpolate Doppler-shifted model on the observed wavelengths
+    interpolated_model = np.interp(self.wavelength.value,
+                                   model_wavelength.value,
+                                   model_flux.value)
+
+    rcond = len(self.flux)*np.finfo(self.flux.dtype).eps
+    # V[:,0]=mfi/e, Vp[:,1]=mfi/e*w, .., Vp[:,npol]=mfi/e*w**npol
+    V = self._Vp * (interpolated_model/self.uncertainty)[:,np.newaxis]
+    # normalizes different powers
+    scl = np.sqrt((V*V).sum(0))
+    sol, resids, rank, s = np.linalg.lstsq(V/scl, self.signal_to_noise,
+                                           rcond)
+    sol = (sol.T/scl).T
+    if rank != self._Vp.shape[-1] - 1:
+        msg = "The fit may be poorly conditioned"
+        warnings.warn(msg)
+
+    fit = np.dot(V, sol) * self.uncertainty
+    # chi2 = np.sum(((self.flux-fit)/self.uncertainty)**2)
+    return fit
 
 
 def find_velocity(self, teff, logg, feh,
