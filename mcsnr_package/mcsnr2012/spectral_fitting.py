@@ -18,9 +18,6 @@ def get_model_spectrum(self, teff, logg, feh, vrad=0.0, vrot=0.0):
 
     return self.spectral_grid.wave, self.spectral_grid(self.spectral_grid.wave)
 
-def get_spectral_fit(self, teff0, logg0, feh0, vrad0, vrot0, npol=5):
-    spectral_model_fit = SimpleStellarParametersFit(self.spectral_grid, self)
-    optimize.minimize(spectral_model_fit, (teff0, logg0, feh0, vrad0, vrot0))
 
 def get_spectral_fit(self, teff0, logg0, feh0, vrad0, vrot0, npol=5):
     spectral_model_fit = SimpleStellarParametersFit(self.spectral_grid, self,
@@ -43,10 +40,12 @@ class SimpleStellarParametersFit(object):
             self.spectrum.wavelength/self.spectrum.wavelength.mean() - 1.,
             npol)
 
+    def __call__(self, pars):
+        par_dict = {}
+        for key, value in zip(self.model.parameters, pars):
+            par_dict[key] = value
 
-    def __call__(self, teff, logg, feh, vrad, vrot):
-        model_spec = self.model.eval(teff=teff, logg=logg,
-                                     feh=feh, vrad=vrad, vrot=vrot)
+        model_spec = self.model.eval(**par_dict)
 
         normalized_model = self.spectrum._normalize(model_spec.wavelength,
                                                     model_spec.flux)
