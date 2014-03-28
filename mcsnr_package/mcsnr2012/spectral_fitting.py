@@ -8,7 +8,7 @@ from astropy.table import Table
 from geminiutil.gmos.alchemy.mos import MOSSpectrum
 
 
-def get_model_spectrum(self, teff, logg, feh):
+def get_model_spectrum(self, teff, logg, feh, vrad=0.0, vrot=0.0):
     if self.spectral_grid is None:
         raise AttributeError('No spectral grid associated')
 
@@ -18,6 +18,9 @@ def get_model_spectrum(self, teff, logg, feh):
 
     return self.spectral_grid.wave, self.spectral_grid(self.spectral_grid.wave)
 
+def get_spectral_fit(self, teff0, logg0, feh0, vrad0, vrot0, npol=5):
+    spectral_model_fit = SimpleStellarParametersFit(self.spectral_grid, self)
+    optimize.minimize(spectral_model_fit, (teff0, logg0, feh0, vrad0, vrot0))
 
 def get_spectral_fit(self, teff0, logg0, feh0, vrad0, vrot0, npol=5):
     spectral_model_fit = SimpleStellarParametersFit(self.spectral_grid, self,
@@ -39,10 +42,10 @@ class SimpleStellarParametersFit(object):
         self.spectrum._Vp = np.polynomial.polynomial.polyvander(
             self.spectrum.wavelength/self.spectrum.wavelength.mean() - 1.,
             npol)
-        self.spectrum._normalize = _normalize
+
 
     def __call__(self, teff, logg, feh, vrad, vrot):
-        model_spec = self.model.eval(self.spectrum, teff=teff, logg=logg,
+        model_spec = self.model.eval(teff=teff, logg=logg,
                                      feh=feh, vrad=vrad, vrot=vrot)
 
         normalized_model = self.spectrum._normalize(model_spec.wavelength,
@@ -175,5 +178,6 @@ def minchi2(chi2, vrange=None, sigrange=None, fitcol='chi2fit'):
 
 MOSSpectrum.get_spectral_fit = get_spectral_fit
 MOSSpectrum._spectral_fit = _spectral_fit
+MOSSpectrum._normalize = _normalize
 MOSSpectrum.get_model_spectrum = get_model_spectrum
 MOSSpectrum.find_velocity = find_velocity
