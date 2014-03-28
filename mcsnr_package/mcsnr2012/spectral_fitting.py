@@ -17,20 +17,12 @@ def get_model_spectrum(self, teff, logg, feh):
 
     return self.spectral_grid.wave, self.spectral_grid(self.spectral_grid.wave)
 
+def get_spectral_fit(self, teff0, logg0, feh0, vrad0, vrot0, npol=5):
+    spectral_model_fit = SimpleStellarParametersFit(self.spectral_grid, self)
 
-def get_spectral_fit(self, teff, logg, feh, velocity=0, npol=3):
+    #optimize.minimize(spectral_model_fit, (teff0, logg0, feh0, vrad0, vrot0))
 
-    model_wavelength, model_flux = self.get_model_spectrum(teff, logg, feh)
 
-    # pre-calculate observed flux/error and polynomial bases
-    if not hasattr(self, 'signal_to_noise'):
-        self.signal_to_noise = (self.flux / self.uncertainty)
-    # Vp[:,0]=1, Vp[:,1]=w, .., Vp[:,npol]=w**npol
-    if not hasattr(self, '_Vp') or self._Vp.shape[-1] != npol + 1:
-        self._Vp = np.polynomial.polynomial.polyvander(
-            self.wavelength/self.wavelength.mean() - 1., npol)
-
-    return self._spectral_fit(model_wavelength, model_flux, velocity)
 
 
 class SimpleStellarParametersFit(object):
