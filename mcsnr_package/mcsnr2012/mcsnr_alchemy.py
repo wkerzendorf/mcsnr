@@ -12,6 +12,7 @@ import ephem
 import os
 from dateutil import parser
 from astropy.utils import misc
+from astropy import constants as const
 
 import pandas as pd
 from astropy.io import fits
@@ -490,44 +491,76 @@ class SNRGeminiTarget(Base):
         return dict([(item.mcps_id, item.label) for item in self.candidates])
 
 
-    def fit_velocities(self, candidates, force=False):
-        velocities = np.zeros((len(candidates), 4))
-        uncertainties = np.zeros((len(candidates), 4))
-        labels = []
+    def fit_stellar_parameters(self, candidates, **kwargs):
+        force = kwargs.pop('force', False)
 
         for j, candidate in enumerate(candidates):
-            labels += [candidate.label]
+            print "@candidate ", candidate
+            guess = kwargs.copy()
+
+            if 'teff' in kwargs and kwargs['teff'] is None:
+                try:
+                    guess['teff'] = candidate.mcps.photometric_temperature('bv').value
+                except:
+                    guess['teff'] = 6000
+
+                guess['teff'] = np.minimum(30000, np.maximum(4000, guess['teff']))
+
 
             for i, spectrum in enumerate(candidate.mos_spectra):
-                raw_wavelength = spectrum.table['wave'].T.flatten() * u.angstrom
-                spectrum.user_mask = raw_wavelength < 6800 * u.angstrom
-
                 current_stellar_parameters = candidate.preliminary_stellar_parameters[i]
-                if not force and current_stellar_parameters.vrad is not None:
+
+                if current_stellar_parameters.fitted and not force:
+                    print "stellar parameters fitted {0} -- skipping"\
+                        .format(current_stellar_parameters)
                     continue
 
-                print "length of spectrum {0}".format(len(spectrum.wavelength))
+                raw_wavelength = spectrum.table['wave'].T.flatten() * u.angstrom
+                spectrum.user_mask = raw_wavelength < 6800 * u.angstrom
 
                 if len(spectrum.wavelength) <100:
                     print "bad spectrum"
                     continue
 
-                vbest, verr, fit, chi2, interpolated_model = spectrum.find_velocity(
-                    current_stellar_parameters.teff,
-                    current_stellar_parameters.logg,
-                    current_stellar_parameters.feh)
-
-                current_stellar_parameters.vrad = vbest
-                current_stellar_parameters.vrad_uncertainty = verr
-
-            print candidate.preliminary_stellar_parameters
+                stellar_params, stellar_params_uncertainty, fit = spectrum.get_spectral_fit(**guess.copy())
 
 
-        vel_unc = np.hstack((velocities, uncertainties))
-        columns = ['velocity{0}'.format(i) for i in xrange(4)] +\
-                  ['uncertainty{0}'.format(i) for i in xrange(4)]
-        return pd.DataFrame(vel_unc, index=labels)
+                for key in stellar_params:
+                    setattr(current_stellar_parameters, key, stellar_params[key])
 
+                for key in stellar_params_uncertainty:
+                    setattr(current_stellar_parameters, key+'_uncertainty', stellar_params_uncertainty[key])
+
+                current_stellar_parameters.fitted = True
+
+                print current_stellar_parameters
+
+    def plot_hrd(self, candidates, ax=None):
+        if ax is None:
+            from matplotlib import pylab as plt
+            ax = plt.gca()
+        teff = []
+        teff_uncertainty = []
+        logg = []
+        logg_uncertainty = []
+        labels = []
+        for candidate in candidates:
+            
+            stell_params = candidate.combined_stellar_parameters()
+            teff.append(stell_params['teff'])
+            teff_uncertainty.append(stell_params['teff_uncertainty'])
+            logg.append(stell_params['logg'])
+            logg_uncertainty.append(stell_params['logg_uncertainty'])
+        
+        ax.errorbar(teff, logg, xerr=teff_uncertainty, yerr=logg_uncertainty,
+                    linestyle='none', marker='o')
+        ax.semilogx()
+        ax.invert_xaxis()
+        ax.invert_yaxis()
+        
+
+            
+            
 
 
 class SNRNeighbour(Base):
@@ -640,8 +673,41 @@ class Candidate(Base, GeminiUtilDBMixin):
                 return self.mos_point_source.mos_spectra
             else:
                 return []
-
-
+                
+    def plot_fit(self, ax=None, spectrum_id=0, offset=0.):
+        if ax is None:
+            import matplotlib.pylab as ax
+        observed = self.mos_spectra[spectrum_id]
+        model = (self.preliminary_stellar_parameters[spectrum_id]
+                 .get_model_spectrum(observed))
+        ax.plot(observed.wavelength.value, observed.flux.value + offset)
+        ax.plot(observed.wavelength.value, model.value + offset)
+        
+    def combined_stellar_parameters(self, spectrum_ids=[0,1]):
+        keys = ('teff', 'logg', 'feh', 'vrad', 'vrot')
+        result = {}
+        for key in keys:
+            values = []
+            errors = []
+            for id in spectrum_ids:
+                pars = self.preliminary_stellar_parameters[id]
+                value = getattr(pars, key)
+                err = getattr(pars, '{0}_uncertainty'.format(key))
+                if err is None or err == 0.:
+                    err = 1.e10
+                values.append(value)
+                errors.append(err)
+            values = np.array(values)
+            errors = np.array(errors)
+            mean = (values/errors**2).sum()/(1./errors**2).sum()
+            error = np.sqrt(1./((1./errors**2).sum()))
+            chi2 = (((values-mean)/errors)**2).sum()
+            error *= np.sqrt(np.maximum(1., chi2/(len(spectrum_ids)-1)))
+            result[key] = mean
+            result['{0}_uncertainty'.format(key)] = error
+        return result
+    
+    
 class PreliminaryStellarParameters(Base):
     __tablename__ = 'preliminary_stellar_parameters'
 
@@ -664,6 +730,7 @@ class PreliminaryStellarParameters(Base):
     vrot = Column(Float)
     vrot_uncertainty = Column(Float)
 
+    fitted = Column(Boolean, default=False)
 
     candidate = relationship(Candidate, uselist=False,
                              backref='preliminary_stellar_parameters')
@@ -673,10 +740,34 @@ class PreliminaryStellarParameters(Base):
     def __repr__(self):
         stellar_params = [item or float('nan') for item in [
             self.teff, self.teff_uncertainty, self.logg, self.logg_uncertainty,
-            self.feh, self.feh_uncertainty, self.vrad, self.vrad_uncertainty]]
+            self.feh, self.feh_uncertainty, self.vrad, self.vrad_uncertainty, self.vrot, self.vrot_uncertainty]]
         return "<stellar param teff {0:.2f}+-{1:.2f} logg {2:.2f}+-{3:.2f} " \
-              "feh {4:.2f}+-{5:.2f} vrad {6:.2f}+-{7:.2f}>".format(*stellar_params
+              "feh {4:.2f}+-{5:.2f} vrad {6:.2f}+-{7:.2f} vrot {8:.2f}+-{9:.2f}>".format(*stellar_params
         )
+
+
+    def get_raw_model_spectrum(self, model_star):
+
+        model_star.parameters
+
+        current_param = dict((key, getattr(self, key)) for key in model_star.parameters)
+
+        return model_star.eval(**current_param)
+
+
+    def get_model_spectrum(self, observed_spectrum):
+        return observed_spectrum.get_model_spectrum(teff=self.teff, logg=self.logg, feh=self.feh, vrad=self.vrad, vrot=self.vrot)
+
+
+
+    def get_predicted_mass_at_distance(self, model_star, distance):
+        obsflux = 3.63e-9 *  u.Unit('erg/(cm2 s Angstrom)') * 10**(-0.4 * self.candidate.mcps.v)
+        spec = self.get_raw_model_spectrum(model_star)
+        modelflux = (spec.flux[np.abs(spec.wavelength-5500*u.AA)<300*u.AA]).mean()
+        radius = (distance*np.sqrt(obsflux/modelflux)).to(u.Rsun)
+        mass = (10.**(self.logg)*u.cm/u.s**2 /const.G *
+        radius**2).to(u.Msun)
+        return obsflux, modelflux, radius, mass
 
 class SNRLocation(Base):
     __tablename__ = 'snr_location'

@@ -1,6 +1,7 @@
 import warnings
 import numpy as np
 from scipy import optimize
+from collections import OrderedDict
 
 from astropy import units as u, constants as const
 from astropy.table import Table
@@ -8,26 +9,63 @@ from astropy.table import Table
 from geminiutil.gmos.alchemy.mos import MOSSpectrum
 
 
-def get_model_spectrum(self, teff, logg, feh, vrad=0.0, vrot=0.0):
-    if self.spectral_grid is None:
-        raise AttributeError('No spectral grid associated')
+def get_model_spectrum(self, **kwargs):
+    
+    if self.model_star is None:
+        raise AttributeError('No model star associated')
+    npol = kwargs.pop('npol', 5)
+    
+    model = self.model_star.eval(**kwargs)
+    return self._normalize(model.wavelength, model.flux, npol=npol)
+    
 
-    self.spectral_grid.teff = teff
-    self.spectral_grid.logg = logg
-    self.spectral_grid.feh = feh
 
-    return self.spectral_grid.wave, self.spectral_grid(self.spectral_grid.wave)
+#def get_model_spectrum(self, **kwargs):
+#    return self.model_star(**kwargs)
 
+def get_spectral_fit(self, **kwargs):
+    npol = kwargs.pop('npol', 5)
+    fitter = kwargs.pop('fitter', 'leastsq')
+    guess = OrderedDict()
+    print self.slice.science_set.science.instrument_setup.grating.name
+    print "Fitting with {0} and guess {1}".format(fitter, kwargs)
+    for kwarg in kwargs:
+        if kwarg not in self.model_star.parameters:
+            raise ValueError("Parameter {0} not known in model_star"
+                             .format(kwarg))
+        guess[kwarg] = kwargs[kwarg]
 
-def get_spectral_fit(self, teff0, logg0, feh0, vrad0, vrot0, npol=5):
-    spectral_model_fit = SimpleStellarParametersFit(self.spectral_grid, self,
-                                                    npol=npol)
+    def spectral_model_fit(pars):
+        pardict = OrderedDict()
+        for key, par in zip(guess.keys(), pars):
+            pardict[key] = par
+        
+        model = self.get_model_spectrum(npol=npol, **pardict)
+        if np.isnan(model[0]):
+            return np.inf
+        else:
+            if fitter == 'leastsq':
+                return ((self.flux - model) / self.uncertainty).to(1).value
+            else:
+                return np.sum(((self.flux - model) / self.uncertainty)**2).to(1).value
 
-    # (solution, covariance, infodict, mesg, ierr) =
-    return optimize.leastsq(spectral_model_fit,
-                            [teff0, logg0, feh0, vrad0, vrot0],
+    if fitter == 'leastsq':
+        fit = optimize.leastsq(spectral_model_fit, np.array(guess.values()),
                             full_output=True)
 
+        stellar_params = OrderedDict((key, par) for key, par in zip(guess.keys(), fit[0]))
+        if fit[1] is not None:
+            stellar_params_uncertainty = OrderedDict(
+                (key, np.sqrt(par)) for key, par in
+                 zip(guess.keys(), np.diag(fit[1])))
+        else:
+            stellar_params_uncertainty = OrderedDict((key, None) for key in guess.keys())
+    else:
+        fit =  optimize.minimize(spectral_model_fit, np.array(guess.values()), method=fitter)
+        stellar_params = OrderedDict((key, par) for key, par in zip(guess.keys(), fit['x']))
+        stellar_params_uncertainty = OrderedDict((key, None) for key, par in zip(guess.keys(), fit['x']))
+
+    return stellar_params, stellar_params_uncertainty, fit
 
 class SimpleStellarParametersFit(object):
 
@@ -36,6 +74,7 @@ class SimpleStellarParametersFit(object):
         self.spectrum = spectrum
         self.spectrum.signal_to_noise = (self.spectrum.flux /
                                          self.spectrum.uncertainty)
+
         self.spectrum._Vp = np.polynomial.polynomial.polyvander(
             self.spectrum.wavelength/self.spectrum.wavelength.mean() - 1.,
             npol)
@@ -49,8 +88,7 @@ class SimpleStellarParametersFit(object):
 
         normalized_model = self.spectrum._normalize(model_spec.wavelength,
                                                     model_spec.flux)
-        return ((self.spectrum.flux - normalized_model) /
-                self.spectrum.uncertainty)**2
+        
 
 
 def _spectral_fit(self, model_wavelength, model_flux, velocity):
@@ -81,9 +119,16 @@ def _spectral_fit(self, model_wavelength, model_flux, velocity):
     return fit, chi2, interpolated_model
 
 
-def _normalize(self, model_wavelength, model_flux):
+def _normalize(self, model_wavelength, model_flux, npol=5):
+    if getattr(self, 'signal_to_noise', None) is None:
+        self.signal_to_noise = (self.flux / self.uncertainty)
+    
+    if getattr(self, '_Vp', None) is None or self._Vp.shape[-1] != npol:
+        self._Vp = np.polynomial.polynomial.polyvander(
+            self.wavelength/self.wavelength.mean() - 1., npol)
+    
     # interpolate Doppler-shifted model on the observed wavelengths
-    interpolated_model = np.interp(self.wavelength.value,
+    interpolated_model = np.interp(self.wavelength,
                                    model_wavelength.value,
                                    model_flux.value)
 
@@ -101,7 +146,7 @@ def _normalize(self, model_wavelength, model_flux):
 
     fit = np.dot(V, sol) * self.uncertainty
     # chi2 = np.sum(((self.flux-fit)/self.uncertainty)**2)
-    return fit
+    return fit.value * self.flux.unit
 
 
 def find_velocity(self, teff, logg, feh,
