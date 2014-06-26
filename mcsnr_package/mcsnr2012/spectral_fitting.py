@@ -130,7 +130,7 @@ def _normalize(self, model_wavelength, model_flux, npol=5):
     # interpolate Doppler-shifted model on the observed wavelengths
     interpolated_model = np.interp(self.wavelength,
                                    model_wavelength.value,
-                                   model_flux.value)
+                                   model_flux)
 
     rcond = len(self.flux)*np.finfo(self.flux.dtype).eps
     # V[:,0]=mfi/e, Vp[:,1]=mfi/e*w, .., Vp[:,npol]=mfi/e*w**npol

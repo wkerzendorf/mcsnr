@@ -11,6 +11,10 @@ if host == 'swan':
 elif host == 'moria':
     work_dir = '/media/data1/mcsnr/'
     dbname = 'sqlite:///databases/gmos_working_copy.db3'
+    
+elif host.startswith('wolfgangs-mbp'):
+    work_dir = '/Users/wkerzend/projects/mcsnr'
+    dbname = 'sqlite:///databases/gmos_working_copy.db3'
 
 else:
     raise ValueError("Unknown host='{0}'".format(host))

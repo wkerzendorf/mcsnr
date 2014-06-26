@@ -23,7 +23,10 @@ import h5py
 from pywcsw import wcstools
 
 from geminiutil.gmos.alchemy.mos import MOSPointSource, MOSSpectrum
+from collections import OrderedDict
 
+from .mcsnr_alchemy_mixins import SNRGeminiTargetPlotting, SNRGeminiTargetWiki, \
+    CandidateWiki
 
 Base = declarative_base()
 
@@ -368,7 +371,7 @@ class NewGeometry(Base):
         self.dec = dec
         self.radius = radius
 
-class SNRGeminiTarget(Base):
+class SNRGeminiTarget(Base, SNRGeminiTargetPlotting, SNRGeminiTargetWiki):
     __tablename__ = 'snr_gemini_target'
     id = Column(Integer, primary_key=True)
     snr_id = Column(Integer, ForeignKey('snrs.id'))
@@ -535,7 +538,9 @@ class SNRGeminiTarget(Base):
 
                 print current_stellar_parameters
 
-    def plot_hrd(self, candidates, ax=None):
+    @staticmethod
+    def plot_hrd(candidates, isochrone_fitter=None, ax=None, spectrum_ids=[0, 1],
+                 isochrone_color='lightpink'):
         if ax is None:
             from matplotlib import pylab as plt
             ax = plt.gca()
@@ -546,22 +551,84 @@ class SNRGeminiTarget(Base):
         labels = []
         for candidate in candidates:
             
-            stell_params = candidate.combined_stellar_parameters()
+            stell_params = candidate.get_combined_stellar_parameters(
+                spectrum_ids=spectrum_ids)
+
             teff.append(stell_params['teff'])
             teff_uncertainty.append(stell_params['teff_uncertainty'])
             logg.append(stell_params['logg'])
             logg_uncertainty.append(stell_params['logg_uncertainty'])
-        
+            labels.append(candidate.label)
+            stellar_label = candidate.label
+
+            if isochrone_fitter is not None:
+                isochrone = candidate.get_fitting_isochrone(isochrone_fitter)
+                ax.plot(isochrone.teff, isochrone.logg, color=isochrone_color)
+
+            ax.annotate(stellar_label,
+                        (stell_params['teff'], stell_params['logg']),
+                        xytext = (-20, 20),
+                        textcoords = 'offset points', ha = 'right',
+                        va = 'bottom', bbox = dict(boxstyle = 'round,pad=0.5',
+                                                   fc = 'yellow', alpha = 0.5),
+                        arrowprops = dict(arrowstyle = '->',
+                                          connectionstyle = 'arc3,rad=0'))
+
         ax.errorbar(teff, logg, xerr=teff_uncertainty, yerr=logg_uncertainty,
-                    linestyle='none', marker='o')
-        ax.semilogx()
+                    linestyle='none', marker='o', zorder=10)
+
+
+        ax.set_xlabel('Teff')
+        ax.set_ylabel('log(g)')
         ax.invert_xaxis()
         ax.invert_yaxis()
         
 
-            
-            
+    @staticmethod
+    def generate_table(candidates, isochrone_fitter):
+        candidate_dict = OrderedDict([('name', []), ('grating', []),
+                                      ('teff', []), ('logg', []), ('feh', []),
+                                      ('v_rad', []), ('v_rot', []),
+                                      ('distance', [])])
 
+        for candidate in candidates:
+
+            for spectrum, measurement in zip(candidate.mos_spectra,
+                                             candidate.preliminary_stellar_parameters):
+                candidate_dict['name'].append(candidate.label)
+                grating_name = (spectrum.slice.science_set.science.
+                                instrument_setup.grating.name.split('+')[0])
+
+                candidate_dict['grating'].append(grating_name)
+                candidate_dict['teff'].append('${0:.2f} \\pm {1:.2f}$'.format(
+                    measurement.teff, measurement.teff_uncertainty))
+
+                candidate_dict['logg'].append('${0:.2f} \\pm {1:.2f}$'.format(
+                    measurement.logg, measurement.logg_uncertainty))
+
+                candidate_dict['feh'].append('${0:.2f} \\pm {1:.2f}$'.format(
+                    measurement.feh, np.nan))
+
+                candidate_dict['v_rad'].append('${0:.2f} \\pm {1:.2f}$'.format(
+                    measurement.vrad, measurement.vrad_uncertainty))
+
+                candidate_dict['v_rot'].append('${0:.2f} \\pm {1:.2f}$'.format(
+                    measurement.vrot, measurement.vrot_uncertainty))
+
+                if grating_name.startswith('B'):
+                    spec_ids = [0, 1]
+                else:
+                    spec_ids = [2, 3]
+
+                dists, dists_err = candidate.get_montecarlo_isochrone_distances(
+                    isochrone_fitter=isochrone_fitter, spectrum_ids=spec_ids)
+
+                candidate_dict['distance'].append('${0:.2f} \\pm {1:.2f}$'.format(
+                    dists.to('kpc'), dists_err.to('kpc')))
+
+        candidate_table = pd.DataFrame(candidate_dict).set_index(['name', 'grating'])
+
+        return candidate_table
 
 class SNRNeighbour(Base):
     __tablename__ = 'snr_neighbour'
@@ -593,7 +660,7 @@ class MCObject(Base):
 
 from mcsnr2012.mcsnr_alchemy_mixins import GeminiUtilDBMixin
 
-class Candidate(Base, GeminiUtilDBMixin):
+class Candidate(Base, GeminiUtilDBMixin, CandidateWiki):
     __tablename__ = 'candidates'
 
     id = Column(Integer, primary_key=True)
@@ -674,16 +741,52 @@ class Candidate(Base, GeminiUtilDBMixin):
             else:
                 return []
                 
-    def plot_fit(self, ax=None, spectrum_id=0, offset=0.):
+    def plot_fit(self, ax=None, spectrum_id=0, offset=0., plot_spectrum=True):
         if ax is None:
             import matplotlib.pylab as ax
         observed = self.mos_spectra[spectrum_id]
-        model = (self.preliminary_stellar_parameters[spectrum_id]
-                 .get_model_spectrum(observed))
-        ax.plot(observed.wavelength.value, observed.flux.value + offset)
-        ax.plot(observed.wavelength.value, model.value + offset)
-        
-    def combined_stellar_parameters(self, spectrum_ids=[0,1]):
+        prelim_params = self.preliminary_stellar_parameters[spectrum_id]
+        model = (prelim_params.get_model_spectrum(observed))
+        if plot_spectrum:
+            ax.plot(observed.wavelength.value, observed.flux.value + offset, label='observed')
+
+        ax.plot(observed.wavelength.value, model.value + offset,
+                label='Teff={0:.2f} logg={1:.2f}\n [Fe/H]={2:.2f} '
+                      'v_rad={3:.2f}\n v_rot={4:.2f}'.format(prelim_params.teff,
+                                                          prelim_params.logg,
+                                                          prelim_params.feh,
+                                                          prelim_params.vrad,
+                                                          prelim_params.vrot))
+
+
+    def plot_overview(self, fig, isochrone_fitter):
+        fig.clf()
+
+        ax = fig.add_subplot(221)
+        self.plot_fit(ax, spectrum_id=0)
+        self.plot_fit(ax, spectrum_id=1)
+        leg = ax.legend(loc=0, fancybox=True, prop=dict(size=6))
+        leg.get_frame().set_alpha(0.5)
+        ax.set_title('Canidate {0}'.format(self.label))
+
+        ax = fig.add_subplot(223)
+        self.plot_fit(ax, spectrum_id=2)
+        self.plot_fit(ax, spectrum_id=3)
+        leg = ax.legend(loc=0, fancybox=True, prop=dict(size=6))
+        leg.get_frame().set_alpha(0.5)
+
+        ax = fig.add_subplot(222)
+        self.get_fitting_isochrone(isochrone_fitter, ax=ax)
+        ax.set_xticks([])
+        ax.legend(loc=0, fancybox=True, prop=dict(size=6), numpoints=1)
+
+        ax = fig.add_subplot(224)
+        self.get_fitting_isochrone(isochrone_fitter, ax=ax, spectrum_ids=[2,3])
+        ax.legend(loc=0, fancybox=True, prop=dict(size=6), numpoints=1)
+
+
+
+    def get_combined_stellar_parameters(self, spectrum_ids=[0,1]):
         keys = ('teff', 'logg', 'feh', 'vrad', 'vrot')
         result = {}
         for key in keys:
@@ -693,6 +796,8 @@ class Candidate(Base, GeminiUtilDBMixin):
                 pars = self.preliminary_stellar_parameters[id]
                 value = getattr(pars, key)
                 err = getattr(pars, '{0}_uncertainty'.format(key))
+                if value is None or err is None:
+                    continue
                 if err is None or err == 0.:
                     err = 1.e10
                 values.append(value)
@@ -704,16 +809,82 @@ class Candidate(Base, GeminiUtilDBMixin):
             chi2 = (((values-mean)/errors)**2).sum()
             error *= np.sqrt(np.maximum(1., chi2/(len(spectrum_ids)-1)))
             result[key] = mean
+            if error/mean > 100000:
+                error = np.nan
             result['{0}_uncertainty'.format(key)] = error
+
         return result
     
-    
+    def get_fitting_isochrone(self, isochrone_fitter, ax=None,
+                              spectrum_ids=[0,1]):
+        combined_stellar_params = self.get_combined_stellar_parameters(
+            spectrum_ids=spectrum_ids)
+        (age, metallicity), closest_isochrone = \
+            isochrone_fitter.find_closest_isochrone(
+            teff=combined_stellar_params['teff'],
+            logg=combined_stellar_params['logg'],
+            feh=combined_stellar_params['feh'])
+        if ax is None:
+            return closest_isochrone
+        else:
+            ax.plot(closest_isochrone['teff'], closest_isochrone['logg'])
+            ax.errorbar([combined_stellar_params['teff']],
+                        [combined_stellar_params['logg']],
+                        xerr=[combined_stellar_params['teff_uncertainty']],
+                        yerr=[combined_stellar_params['logg_uncertainty']],
+                        label='Teff={0:.2f}+-{1:.2f}\n logg={2:.2f}+-{3:.2f}'
+                        .format(combined_stellar_params['teff'],
+                                combined_stellar_params['teff_uncertainty'],
+                                combined_stellar_params['logg'],
+                                combined_stellar_params['logg_uncertainty']))
+            ax.set_title('Age = {0:.2g} Gyr [Fe/H] = {1:.2g}'.format(age, metallicity))
+            ax.invert_xaxis()
+            ax.invert_yaxis()
+
+
+    def get_montecarlo_isochrone_distances(self, isochrone_fitter,
+                                           spectrum_ids=[0, 1]):
+        combined_parameters = self.get_combined_stellar_parameters(
+            spectrum_ids=spectrum_ids)
+
+        return isochrone_fitter.montecarlo_distances(
+            teff=combined_parameters['teff'],
+            teff_unc=combined_parameters['teff_uncertainty'],
+            logg=combined_parameters['logg'],
+            logg_unc=combined_parameters['logg_uncertainty'],
+            feh=combined_parameters['feh'],
+            feh_unc=combined_parameters['feh_uncertainty'],
+            v=self.mcps.v, v_unc=self.mcps.v_err,
+            bv=(self.mcps.b - self.mcps.v),
+            bv_unc=np.sqrt(self.mcps.b_err**2+self.mcps.v_err**2)
+        )
+
 class PreliminaryStellarParameters(Base):
     __tablename__ = 'preliminary_stellar_parameters'
 
     id = Column(Integer, primary_key=True)
 
     candidate_id = Column(Integer, ForeignKey('candidates.id'))
+
+    def __getattr__(self, item):
+        if item.replace('_str', '') in ['teff', 'logg', 'feh', 'vrad', 'vrot']:
+            param_name = item.replace('_str', '')
+            param_value = getattr(self, param_name)
+            param_uncertainty = getattr(self, param_name + '_uncertainty')
+
+            if param_value is not None:
+                param_value_str = "{0:.2f}".format(param_value)
+            else:
+                param_value_str = 'none'
+
+            if param_uncertainty is not None:
+                param_uncertainty_str = "{0:.2f}".format(param_uncertainty)
+            else:
+                param_uncertainty_str = 'none'
+
+            return '{0} +/- {1}'.format(param_value_str, param_uncertainty_str)
+        else:
+            return super(PreliminaryStellarParameters, self).__getattribute__(item)
 
     teff = Column(Float)
     teff_uncertainty = Column(Float)
